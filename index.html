@@ -131,7 +131,7 @@ load();setInterval(refresh,2500);
     else window.alert(text);
   }
   function sync() {
-    var visible = !!document.querySelector('.admin-main');
+    var visible = !!document.querySelector('.admin-main, .login-wrap');
     if (!visible) { if (button) button.style.display = 'none'; return; }
     if (!button) {
       button = document.createElement('button');
@@ -163,8 +163,35 @@ load();setInterval(refresh,2500);
   document.addEventListener('webkitfullscreenerror', function () { notify('此瀏覽器無法切換全螢幕。'); });
   var app = document.getElementById('app');
   if (app && window.MutationObserver) new MutationObserver(sync).observe(app, {childList:true,subtree:true});
+
+  var loginEntering = false;
+  function enterFromLogin() {
+    if (active() || loginEntering) return;
+    var root = document.documentElement;
+    var enter = root.requestFullscreen || root.webkitRequestFullscreen || root.webkitRequestFullScreen;
+    if (!enter) return;
+    loginEntering = true;
+    try {
+      var result = enter.call(root);
+      if (result && typeof result.catch === 'function') result.catch(function () { loginEntering = false; });
+    } catch (error) { loginEntering = false; }
+    window.setTimeout(function () { loginEntering = false; }, 1200);
+  }
+  // Use the trusted login gesture before the existing asynchronous login request.
+  document.addEventListener('click', function (event) {
+    var node = event.target;
+    if (node && node.nodeType !== 1) node = node.parentElement;
+    while (node && node !== document) {
+      if (node.id === 'login-form') { enterFromLogin(); break; }
+      node = node.parentElement;
+    }
+  }, true);
+  document.addEventListener('submit', function (event) {
+    if (event.target && event.target.id === 'login-form') enterFromLogin();
+  }, true);
   sync();
 })();
 </script></body></html>
+
 
 
