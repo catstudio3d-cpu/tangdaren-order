@@ -122,5 +122,49 @@ document.addEventListener('change',async e=>{try{if(e.target.id==='category-choi
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,btn=f.querySelector('button[type=submit]');if(btn)btn.disabled=true;try{if(f.id==='login-form'){await api('/api/login',{role:path==='/kitchen'?'kitchen':'cashier',username:$('#username').value.trim(),pin:$('#pin').value});await load()}if(f.id==='expense-form'){await api('/api/expense',{day:state.day,category:$('#expense-category').value,amount:Number($('#expense-amount').value),note:$('#expense-note').value});state.report=await api('/api/report?day='+state.day);render();toast('支出已記帳')}if(f.id==='menu-create-form'||f.dataset.menuEdit){const file=f.elements.photo.files[0];const image=file?await photoData(file):f.elements.image.value.trim();await api('/api/menu-save',{id:f.dataset.menuEdit||undefined,name:f.elements.name.value.trim(),category:f.elements.category.value,description:f.elements.description.value,image,price:Number(f.elements.price.value),available:f.elements.available.checked});state.menu=(await api('/api/menu')).menu;render();toast('餐點已儲存，顧客重新整理即可看到')}if(f.dataset.menuForm){await api('/api/menu-update',{id:f.dataset.menuForm,price:Number(f.elements.price.value),available:f.elements.available.checked});state.menu=(await api('/api/menu')).menu;toast('菜單已更新')}}catch(err){if(f.id==='login-form')$('#login-error').innerHTML='<p class="error">'+esc(err.message)+'</p>';else toast(err.message)}finally{if(btn)btn.disabled=false}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 load();setInterval(refresh,2500);
+</script><script data-staff-fullscreen="v1">
+(function () {
+  var button = null;
+  function active() { return document.fullscreenElement || document.webkitFullscreenElement || document.webkitCurrentFullScreenElement; }
+  function notify(text) {
+    if (typeof toast === 'function') toast(text);
+    else window.alert(text);
+  }
+  function sync() {
+    var visible = !!document.querySelector('.admin-main');
+    if (!visible) { if (button) button.style.display = 'none'; return; }
+    if (!button) {
+      button = document.createElement('button');
+      button.id = 'staff-fullscreen';
+      button.type = 'button';
+      button.className = 'btn';
+      button.onclick = function () {
+        var root = document.documentElement;
+        var method = active() ? (document.exitFullscreen || document.webkitExitFullscreen || document.webkitCancelFullScreen) : (root.requestFullscreen || root.webkitRequestFullscreen || root.webkitRequestFullScreen);
+        if (!method) { notify('此 Chrome 不支援網頁全螢幕，請繼續使用目前介面。'); return; }
+        try {
+          var result = method.call(active() ? document : root);
+          if (result && typeof result.catch === 'function') result.catch(function () { notify('無法進入全螢幕，請再點一次按鈕；若持續失敗，可能是瀏覽器限制。'); });
+        } catch (error) { notify('無法切換全螢幕：' + error.message); }
+      };
+      document.body.appendChild(button);
+    }
+    button.style.display = '';
+    button.textContent = active() ? '退出全螢幕' : '全螢幕';
+    button.setAttribute('aria-label', active() ? '退出全螢幕' : '進入全螢幕，隱藏瀏覽器網址列');
+    button.setAttribute('aria-pressed', active() ? 'true' : 'false');
+  }
+  var style = document.createElement('style');
+  style.textContent = '#staff-fullscreen{position:fixed;right:16px;bottom:18px;z-index:55;font-size:17px;min-height:48px;box-shadow:0 3px 14px #0003}body:has(.cp-overlay) #staff-fullscreen{display:none!important}@media print{#staff-fullscreen{display:none!important}}';
+  document.head.appendChild(style);
+  document.addEventListener('fullscreenchange', sync);
+  document.addEventListener('webkitfullscreenchange', sync);
+  document.addEventListener('fullscreenerror', function () { notify('瀏覽器拒絕全螢幕，請再點一次全螢幕按鈕。'); });
+  document.addEventListener('webkitfullscreenerror', function () { notify('此瀏覽器無法切換全螢幕。'); });
+  var app = document.getElementById('app');
+  if (app && window.MutationObserver) new MutationObserver(sync).observe(app, {childList:true,subtree:true});
+  sync();
+})();
 </script></body></html>
+
 
