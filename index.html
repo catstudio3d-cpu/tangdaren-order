@@ -166,9 +166,17 @@ load();setInterval(refresh,2500);
  `;document.head.appendChild(el);}
  function overlay(){document.getElementById('cp-overlay')?.remove();const p=document.createElement('div');p.id='cp-overlay';p.className='cp-overlay';p.setAttribute('role','dialog');p.setAttribute('aria-label','列印預覽');document.body.appendChild(p);return p;}
  function close(){document.getElementById('cp-overlay')?.remove();document.body.classList.remove('cp-printing');}
- async function preview(id,type){try{const data=await call('/api/print/receipt?bill='+encodeURIComponent(id)+'&kind='+type);data.reprint=data.bill.status==='paid';const p=overlay();p.innerHTML='<div class="cp-top"><button class="btn secondary" id="cp-close">關閉</button><label>紙寬 <select id="cp-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button class="btn" id="cp-system">列印／儲存 PDF</button>'+(navigator.usb?'<button class="btn secondary" id="cp-direct">USB 列印</button>':'')+'<span>瀏覽器列印會開啟系統對話框，請確認紙張與印表機。</span></div>'+core.markup(data);
-  p.querySelector('#cp-close').onclick=close;p.querySelector('#cp-width').onchange=e=>p.style.setProperty('--cp-width',e.target.value);
-  p.querySelector('#cp-system').onclick=()=>{document.body.classList.add('cp-printing');window.print()};
+ async function preview(id,type){try{const data=await call('/api/print/receipt?bill='+encodeURIComponent(id)+'&kind='+type);data.reprint=data.bill.status==='paid';const p=overlay();p.innerHTML='<div class="cp-top"><button class="btn secondary" id="cp-close">關閉</button><label>紙寬 <select id="cp-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button class="btn" id="cp-system">依目前設定列印</button>'+(navigator.usb?'<button class="btn secondary" id="cp-direct">USB 列印</button>':'')+'<span>已連接 USB 時直接依設定列印；未連接時使用瀏覽器系統列印。</span></div>'+core.markup(data);
+  p.querySelector('#cp-close').onclick=close;
+  const widthSelect=p.querySelector('#cp-width');
+  const savedWidth=['72mm','50mm','180mm'].includes(pref.paperWidth)?pref.paperWidth:(pref.narrow?'50mm':'72mm');
+  widthSelect.value=savedWidth;p.style.setProperty('--cp-width',savedWidth);
+  widthSelect.onchange=e=>{pref.paperWidth=e.target.value;if(e.target.value!=='180mm')pref.narrow=e.target.value==='50mm';save();p.style.setProperty('--cp-width',e.target.value);const narrow=document.getElementById('cp-narrow');if(narrow)narrow.checked=!!pref.narrow;};
+  p.querySelector('#cp-system').onclick=async e=>{
+   const button=e.currentTarget;if(busy){alert('目前正在列印，請稍後再試');return;}
+   if(device?.opened){button.disabled=true;busy=true;try{await send(data);message('已依目前紙寬與切紙設定傳送 USB，請確認紙本');}catch(err){alert(err.message);message('列印失敗：'+err.message);}finally{busy=false;button.disabled=false;}return;}
+   document.body.classList.add('cp-printing');try{window.print();}catch(err){document.body.classList.remove('cp-printing');alert(err.message);}
+  };
   p.querySelector('#cp-direct')?.addEventListener('click',async e=>{e.target.disabled=true;let owned=false;try{if(busy)throw Error('目前正在列印，請稍後再補印');if(!device)await connect();if(busy)throw Error('目前正在列印，請稍後再補印');busy=true;owned=true;await send(data);message('已傳送 USB，請確認紙本')}catch(e){alert(e.message)}finally{if(owned)busy=false;e.target.disabled=false}});
  }catch(e){alert(e.message)}}
  addEventListener('afterprint',()=>document.body.classList.remove('cp-printing'));
@@ -187,7 +195,7 @@ load();setInterval(refresh,2500);
  function decorate(){if(!state.role){close();pref.auto=false;save();return;}if(path==='/')return;const main=document.querySelector('.admin-main');if(!main)return;
   let p=document.getElementById('cp-controls');if(!p){p=document.createElement('section');p.id='cp-controls';p.className='cp-controls';p.innerHTML='<div class="actions"><strong>列印設定</strong>'+(navigator.usb?'<button class="btn small secondary" id="cp-connect">連接 USB 印表機</button><label><input type="checkbox" id="cp-auto">USB 自動列印</label><label><input type="checkbox" id="cp-narrow">58 mm 紙</label><label><input type="checkbox" id="cp-cut">自動切紙</label>':'<span>此瀏覽器使用「列印／儲存 PDF」功能。</span>')+(state.role==='admin'?'<button class="btn small secondary" id="cp-history">訂單查詢／重印</button>':'')+'<span id="cp-last"></span></div><div class="cp-status" id="cp-status"></div><small>USB 自動列印需先連接並保持本頁開啟；每筆工作由一台裝置接收。系統列印需手動確認。</small>';main.prepend(p);
    p.querySelector('#cp-connect')?.addEventListener('click',()=>connect().catch(e=>message(e.message)));p.querySelector('#cp-auto')?.addEventListener('change',e=>{if(e.target.checked&&!['/kitchen','/cashier'].includes(path)){e.target.checked=false;message('請在廚房出餐或前台結帳頁啟用');return;}if(e.target.checked&&!device){e.target.checked=false;message('請先按「連接 USB 印表機」');return;}pref.auto=e.target.checked;save();poll()});
-   for(const [id,key,def] of [['cp-narrow','narrow',false],['cp-cut','cut',true]]){const b=p.querySelector('#'+id);if(b){b.checked=pref[key]??def;b.onchange=()=>{pref[key]=b.checked;save()}}}p.querySelector('#cp-history')?.addEventListener('click',history);
+   for(const [id,key,def] of [['cp-narrow','narrow',false],['cp-cut','cut',true]]){const b=p.querySelector('#'+id);if(b){b.checked=pref[key]??def;b.onchange=()=>{pref[key]=b.checked;if(key==='narrow')pref.paperWidth=b.checked?'50mm':'72mm';save()}}}p.querySelector('#cp-history')?.addEventListener('click',history);
   }
   const auto=p.querySelector('#cp-auto');if(auto)auto.checked=!!pref.auto;const stat=p.querySelector('#cp-status');if(stat.textContent!==lastMessage)stat.textContent=lastMessage;
   if(lastBill&&kind()==='receipt'){const slot=p.querySelector('#cp-last');if(!slot.firstChild){const b=document.createElement('button');b.className='btn small secondary';b.textContent='列印最近結帳清單';b.onclick=()=>preview(lastBill,'receipt');slot.appendChild(b)}}
@@ -199,4 +207,5 @@ load();setInterval(refresh,2500);
 })();
 
 </script></body></html>
+
 
