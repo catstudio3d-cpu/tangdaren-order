@@ -308,22 +308,43 @@ load();setInterval(refresh,2500);
  let bridgeReady=false,bridgePrinter='',bridgeToken=sessionStorage.getItem('tangdaren-windows-pair')||'';
  async function bridgeCall(route,body){
   if(!bridgeToken)throw Error('請先連接 Windows USB 印表機。');
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),route==='/status'?10000:45000);
   try{
    const result=await fetch('http://127.0.0.1:17888'+route,{method:body?'POST':'GET',mode:'cors',credentials:'omit',targetAddressSpace:'loopback',signal:controller.signal,headers:{'X-Tangdaren-Token':bridgeToken,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
    const value=await result.json();if(!result.ok)throw Error(value.error||'Windows 列印連線失敗');return value;
   }catch(error){if(error instanceof TypeError||error.name==='AbortError')throw Error('無法連接本機列印程式。請先啟動 windows-print-bridge.ps1，並允許 Chrome 存取本機／區域網路。');throw error;}
   finally{clearTimeout(timer);}
  }
- async function connectWindows(){
+ function connectWindows(){
   if(busy||connecting)throw Error('目前正在列印或連線，請稍候。');
-  const code=prompt('請先啟動 Windows 列印連線程式、選擇 CP-Q1UN，貼上程式視窗的 Pairing code：',bridgeToken);
-  if(code===null)return;
-  if(!/^[a-f0-9]{48}$/.test(code.trim()))throw Error('請貼上本機列印程式顯示的完整配對碼。');
-  bridgeToken=code.trim();bridgeReady=false;connecting=true;
-  try{const result=await bridgeCall('/status');bridgePrinter=result.printer;bridgeReady=true;sessionStorage.setItem('tangdaren-windows-pair',bridgeToken);message('Windows USB 已連接：'+bridgePrinter+'。可先測試列印，再勾選「收到訂單自動列印」。');}
-  finally{connecting=false;}
+  let panel=document.getElementById('cp-windows-pair');
+  if(panel){panel.hidden=false;panel.querySelector('input').focus();return;}
+  const controls=document.getElementById('cp-controls');if(!controls)throw Error('請回工作台後再連接印表機。');
+  panel=document.createElement('div');panel.id='cp-windows-pair';panel.style.cssText='margin-top:16px;padding:16px;border:2px solid #164f46;border-radius:10px;background:#f4faf6';
+  panel.innerHTML='<strong>Windows USB 印表機連線</strong><p>先按「下載 Windows 列印程式」，在下載資料夾開啟 PowerShell，執行下方指令：</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere;user-select:text">powershell -NoProfile -ExecutionPolicy Bypass -File .\\windows-print-bridge.ps1</pre><p>在程式視窗選擇 CP-Q1UN，將顯示的 Pairing code 貼到下方。程式需保持開啟。</p><label for="cp-pair-code">配對碼</label><input id="cp-pair-code" type="text" autocomplete="off" spellcheck="false" style="display:block;width:100%;max-width:650px;font-size:18px;padding:12px;margin:8px 0" placeholder="貼上列印程式顯示的 48 碼 Pairing code"><div class="actions"><button type="button" class="btn" id="cp-pair-submit">確認連接</button><button type="button" class="btn secondary" id="cp-pair-hide">收起</button></div><p id="cp-pair-status" role="status" aria-live="polite"></p>';
+  controls.appendChild(panel);
+  const input=panel.querySelector('#cp-pair-code'),button=panel.querySelector('#cp-pair-submit'),status=panel.querySelector('#cp-pair-status');
+  input.value=bridgeToken;
+  const submit=async()=>{
+   if(busy||connecting)return;
+   const code=input.value.trim().toLowerCase();
+   if(!/^[a-f0-9]{48}$/.test(code)){status.textContent='請貼上本機列印程式顯示的完整 48 碼配對碼。';input.focus();return;}
+   bridgeToken=code;bridgeReady=false;connecting=true;button.disabled=true;
+   status.textContent='正在連接本機列印程式。Chrome 若詢問本機／區域網路存取，請允許。';message(status.textContent);
+   try{
+    const result=await bridgeCall('/status');bridgePrinter=result.printer;bridgeReady=true;
+    sessionStorage.setItem('tangdaren-windows-pair',bridgeToken);
+    status.textContent='已連接：'+bridgePrinter+'。請先測試列印，確認出紙後勾選自動列印。';message(status.textContent);
+   }catch(error){status.textContent=error.message;message(error.message);}
+   finally{connecting=false;button.disabled=false;}
+  };
+  button.addEventListener('click',submit);
+  input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();submit();}});
+  panel.querySelector('#cp-pair-hide').onclick=()=>{panel.hidden=true;};
+  message('已展開 Windows USB 連線設定，請在下方貼上配對碼。');
+  input.focus();
  }
+
  const ready=()=>windowsPC?bridgeReady:!!device?.opened;
  async function sendConfigured(job){
   if(!windowsPC)return send(job);
@@ -404,7 +425,7 @@ load();setInterval(refresh,2500);
 p.querySelector('#cp-auto')?.addEventListener('change',e=>{if(e.target.checked&&!['/kitchen','/cashier'].includes(path)){e.target.checked=false;message('請在廚房出餐或前台結帳頁啟用');return;}if(e.target.checked&&!ready()){e.target.checked=false;message('請先按「連接 USB 印表機」');return;}if(e.target.checked&&!confirm('啟用後會列印此工作台尚未處理的待列印工作（包含較早的待印單）。請確認只在一台裝置啟用。')){e.target.checked=false;return;}pref.auto=e.target.checked;save();poll()});
    for(const [id,key,def] of [['cp-narrow','narrow',false],['cp-cut','cut',true]]){const b=p.querySelector('#'+id);if(b){b.checked=pref[key]??def;b.onchange=()=>{pref[key]=b.checked;save()}}}p.querySelector('#cp-history')?.addEventListener('click',history);
   }
-  const auto=p.querySelector('#cp-auto');if(auto)auto.checked=!!pref.auto;const stat=p.querySelector('#cp-status');if(stat.textContent!==lastMessage)stat.textContent=lastMessage;
+  const auto=p.querySelector('#cp-auto');if(auto)auto.checked=!!pref.auto;const connectionButton=p.querySelector('#cp-connect');if(connectionButton&&windowsPC)connectionButton.textContent=bridgeReady?'Windows USB 已連接':'連接 USB 印表機（Windows）';const stat=p.querySelector('#cp-status');if(stat.textContent!==lastMessage)stat.textContent=lastMessage;
   if(lastBill&&kind()==='receipt'){const slot=p.querySelector('#cp-last');if(!slot.firstChild){const b=document.createElement('button');b.className='btn small secondary';b.textContent='列印最近結帳清單';b.onclick=()=>preview(lastBill,'receipt');slot.appendChild(b)}}
   if(path==='/kitchen'){const bills=grouped();document.querySelectorAll('.kitchen-grid>.ticket').forEach((card,i)=>{if(card.querySelector('[data-cp-ticket]')||!bills[i])return;const b=document.createElement('button');b.dataset.cpTicket='1';b.className='btn small secondary';b.textContent='列印點餐單';const id=bills[i].id;b.onclick=()=>preview(id,'kitchen');card.querySelector('.ticket-head').appendChild(b)})}
   for(const pay of document.querySelectorAll('[data-checkout]')){if(pay.parentElement.querySelector('[data-cp-bill]'))continue;const b=document.createElement('button');b.dataset.cpBill='1';b.className='btn secondary';b.textContent='列印消費明細';b.onclick=()=>preview(pay.dataset.checkout,'receipt');pay.parentElement.appendChild(b)}
