@@ -263,17 +263,61 @@ load();setInterval(refresh,2500);
   const load=async()=>{try{const j=await call('/api/print/history?day='+p.querySelector('#cp-day').value),list=p.querySelector('#cp-list');list.innerHTML=j.bills.map(b=>'<section>第 '+b.table_no+' 桌 · '+esc(b.id)+' · '+(b.status==='paid'?'已結帳':'未結帳')+' · NT$'+b.total+'<br><button class="btn small secondary" data-cp-id="'+esc(b.id)+'" data-cp-kind="kitchen">點餐單</button> <button class="btn small secondary" data-cp-id="'+esc(b.id)+'" data-cp-kind="receipt">'+(b.status==='paid'?'重印結帳清單':'消費明細')+'</button></section>').join('')+'<h3>最近列印工作</h3>'+j.jobs.map(x=>'<section>'+esc(x.bill_id)+' · '+esc(x.kind==='kitchen'?'廚房':'結帳')+' · '+esc(({pending:'待列印',sending:'傳送中／需確認',sent:'已傳送 USB',failed:'失敗'})[x.status]||x.status)+'<br>'+esc(x.detail)+(x.status==='failed'||x.status==='sending'?' <button class="btn small secondary" data-cp-retry="'+esc(x.id)+'">確認後補印</button>':'')+'</section>').join('');list.querySelectorAll('[data-cp-id]').forEach(b=>b.onclick=()=>preview(b.dataset.cpId,b.dataset.cpKind));list.querySelectorAll('[data-cp-retry]').forEach(b=>b.onclick=async()=>{if(!confirm('請先確認紙本，補印可能再次出紙。確定補印？'))return;await call('/api/print/retry',{id:b.dataset.cpRetry});await load()});}catch(e){p.querySelector('#cp-list').textContent=e.message;}};
   p.querySelector('#cp-day').onchange=load;await load();
  }catch(e){alert(e.message)}}
- async function connect(){if(busy)throw Error('請等目前列印完成後再更換印表機');if(!navigator.usb)throw Error('此瀏覽器不支援直接 USB，請使用系統列印。');const d=await navigator.usb.requestDevice({filters:[{classCode:7},{classCode:255}]});await d.open();try{if(!d.configuration)await d.selectConfiguration(d.configurations[0].configurationValue);let face,ep,alternate;for(const f of d.configuration.interfaces){for(const a of f.alternates){const e=a.endpoints.find(e=>e.direction==='out'&&e.type==='bulk');if(e&&(a.interfaceClass===7||a.interfaceClass===255)){face=f;ep=e;iface=f.interfaceNumber;alternate=a.alternateSetting;break;}}if(face)break;}if(!face)throw Error('找不到 USB 列印介面');if(device?.opened&&device!==d)await device.close();if(d===device&&d.opened)return;await d.claimInterface(iface);if(d.configuration.interfaces.find(f=>f.interfaceNumber===iface)?.alternate.alternateSetting!==alternate)await d.selectAlternateInterface(iface,alternate);device=d;outEndpoint=ep.endpointNumber;message('USB 已連接：'+(d.productName||'印表機'));}catch(e){await d.close().catch(()=>{});throw Error('無法開啟印表機：'+e.message+'。若被系統驅動占用，請改用系統列印。')}}
+
+ let connecting=false;
+ async function connect(){
+  if(busy||connecting)throw Error('目前正在列印或連線，請稍候。');
+  if(!navigator.usb)throw Error('此 Chrome 不支援 WebUSB，請以電腦 Chrome 開啟 HTTPS 網站。');
+  connecting=true;let chosen=null,phase='選擇印表機';
+  message('請在 Chrome 裝置視窗中選擇 USB 印表機並允許連線。');
+  try{
+   chosen=await navigator.usb.requestDevice({filters:[{classCode:7},{classCode:255}]});
+   if(chosen===device&&device.opened){message('USB 已連接：'+(device.productName||'印表機'));return;}
+   if(device?.opened){await device.close();device=null;iface=null;outEndpoint=null;}
+   phase='開啟裝置';if(!chosen.opened)await chosen.open();
+   if(!chosen.configuration){
+    if(!chosen.configurations.length)throw Error('裝置沒有可用 USB 設定。');
+    await chosen.selectConfiguration(chosen.configurations[0].configurationValue);
+   }
+   const candidates=[];
+   for(const face of chosen.configuration.interfaces)for(const alt of face.alternates){
+    const ep=alt.endpoints.find(e=>e.direction==='out'&&e.type==='bulk');
+    if(ep&&(alt.interfaceClass===7||alt.interfaceClass===255))candidates.push({face,alt,ep});
+   }
+   candidates.sort((a,b)=>(a.alt.interfaceClass===7?0:1)-(b.alt.interfaceClass===7?0:1));
+   if(!candidates.length)throw Error('找不到印表機的 Bulk OUT 傳送介面。');
+   phase='取得 USB 介面';let lastError;
+   for(const candidate of candidates){
+    let claimed=false;
+    try{
+     await chosen.claimInterface(candidate.face.interfaceNumber);claimed=true;
+     const live=chosen.configuration.interfaces.find(f=>f.interfaceNumber===candidate.face.interfaceNumber);
+     if(live.alternate.alternateSetting!==candidate.alt.alternateSetting)await chosen.selectAlternateInterface(candidate.face.interfaceNumber,candidate.alt.alternateSetting);
+     device=chosen;iface=candidate.face.interfaceNumber;outEndpoint=candidate.ep.endpointNumber;
+     message('USB 已連接：'+(chosen.productName||'印表機')+'；介面 '+iface+'，可按「測試列印」確認出紙。');return;
+    }catch(error){lastError=error;if(claimed)await chosen.releaseInterface(candidate.face.interfaceNumber).catch(()=>{});}
+   }
+   throw lastError||Error('無法取得 USB 列印介面。');
+  }catch(error){
+   if(chosen&&chosen!==device&&chosen.opened)await chosen.close().catch(()=>{});
+   if(error.name==='NotFoundError'&&!chosen)throw Error('未選擇印表機或已取消。若清單沒有印表機，請確認 USB 接線及電源。');
+   const details=error.message||String(error);
+   if(phase==='取得 USB 介面')throw Error('Chrome 無法取得 USB 印表機控制權：'+details+'。可能被 Windows 印表機驅動、其他程式或另一個分頁占用；若由系統驅動占用，網頁無法強制解除。');
+   throw Error(phase+'失敗：'+details);
+  }finally{connecting=false;}
+ }
  async function send(job){if(!device?.opened)throw Error('請先連接 USB 印表機');const write=async bytes=>{for(let p=0;p<bytes.length;){const chunk=bytes.slice(p,p+4096),r=await device.transferOut(outEndpoint,chunk);if(r.status!=='ok'||!r.bytesWritten)throw Error('USB 傳送中斷，請確認紙本後補印');p+=r.bytesWritten;}};await write(new Uint8Array([27,64]));for(const band of core.bands(job,pref.narrow?384:576))await write(band);await write(new Uint8Array([27,100,4]));if(pref.cut!==false)await write(new Uint8Array([29,86,66,0]));}
- async function poll(){if(busy||!pref.auto||!allowed()||!device?.opened||!['/kitchen','/cashier'].includes(path))return;busy=true;try{
+ async function poll(){if(busy||connecting||!pref.auto||!allowed()||!device?.opened||!['/kitchen','/cashier'].includes(path))return;busy=true;try{
   if(pref.ack){await call('/api/print/result',pref.ack);delete pref.ack;save();}
   const {jobs}=await call('/api/print/jobs?kind='+kind());if(!jobs.length){message('USB 自動列印：等待'+(kind()==='kitchen'?'新訂單':'結帳清單'));return;}
   let job;try{job=await call('/api/print/claim',{id:jobs[0].id,owner})}catch(e){message(e.message);return;}let ok=false,detail='';try{await send(job);ok=true;detail='已傳送 USB，請確認紙本';}catch(e){detail=e.message;pref.auto=false;save();}
   pref.ack={id:job.id,owner,status:ok?'sent':'failed',detail};save();await call('/api/print/result',pref.ack);delete pref.ack;save();message(detail);
  }catch(e){message('列印連線：'+e.message)}finally{busy=false;}}
  function decorate(){if(!state.role){close();pref.auto=false;save();return;}if(path==='/')return;const main=document.querySelector('.admin-main');if(!main)return;
-  let p=document.getElementById('cp-controls');if(!p){p=document.createElement('section');p.id='cp-controls';p.className='cp-controls';p.innerHTML='<div class="actions"><strong>列印設定</strong>'+(navigator.usb?'<button class="btn small secondary" id="cp-connect">連接 USB 印表機</button><label><input type="checkbox" id="cp-auto">USB 自動列印</label><label><input type="checkbox" id="cp-narrow">58 mm 紙</label><label><input type="checkbox" id="cp-cut">自動切紙</label>':'<span>此瀏覽器使用「列印／儲存 PDF」功能。</span>')+(state.role==='admin'?'<button class="btn small secondary" id="cp-history">訂單查詢／重印</button>':'')+'<span id="cp-last"></span></div><div class="cp-status" id="cp-status"></div><small>USB 自動列印需先連接並保持本頁開啟；每筆工作由一台裝置接收。系統列印需手動確認。</small>';main.prepend(p);
-   p.querySelector('#cp-connect')?.addEventListener('click',()=>connect().catch(e=>message(e.message)));p.querySelector('#cp-auto')?.addEventListener('change',e=>{if(e.target.checked&&!['/kitchen','/cashier'].includes(path)){e.target.checked=false;message('請在廚房出餐或前台結帳頁啟用');return;}if(e.target.checked&&!device){e.target.checked=false;message('請先按「連接 USB 印表機」');return;}pref.auto=e.target.checked;save();poll()});
+  let p=document.getElementById('cp-controls');if(!p){p=document.createElement('section');p.id='cp-controls';p.className='cp-controls';p.innerHTML='<div class="actions"><strong>列印設定</strong>'+(navigator.usb?'<button class="btn small secondary" id="cp-connect" type="button">連接 USB 印表機</button><button class="btn small secondary" id="cp-test" type="button">測試列印</button><label><input type="checkbox" id="cp-auto">USB 自動列印</label><label><input type="checkbox" id="cp-narrow">58 mm 紙</label><label><input type="checkbox" id="cp-cut">自動切紙</label>':'<span>此瀏覽器使用「列印／儲存 PDF」功能。</span>')+(state.role==='admin'?'<button class="btn small secondary" id="cp-history">訂單查詢／重印</button>':'')+'<span id="cp-last"></span></div><div class="cp-status" id="cp-status"></div><small>USB 自動列印需先連接並保持本頁開啟；每筆工作由一台裝置接收。系統列印需手動確認。</small>';main.prepend(p);
+   p.querySelector('#cp-connect')?.addEventListener('click',async e=>{const button=e.currentTarget;button.disabled=true;try{await connect();}catch(error){message(error.message);}finally{button.disabled=false;}});
+   p.querySelector('#cp-test')?.addEventListener('click',async e=>{const button=e.currentTarget;if(busy||connecting){message('目前正在列印或連線，請稍候。');return;}if(!device?.opened){message('請先按「連接 USB 印表機」完成連線。');return;}button.disabled=true;busy=true;try{await send({id:'usb-test',kind:'kitchen',created_at:new Date().toISOString(),bill:{id:'USB 測試',table_no:'—'},lines:[{name:'USB 中文測試列印',price:0,qty:1,note:'這是測試單，非實際訂單。'}]});message('測試資料已傳送，請確認印表機是否出紙。');}catch(error){message('測試列印失敗：'+error.message);}finally{busy=false;button.disabled=false;}});
+p.querySelector('#cp-auto')?.addEventListener('change',e=>{if(e.target.checked&&!['/kitchen','/cashier'].includes(path)){e.target.checked=false;message('請在廚房出餐或前台結帳頁啟用');return;}if(e.target.checked&&!device){e.target.checked=false;message('請先按「連接 USB 印表機」');return;}pref.auto=e.target.checked;save();poll()});
    for(const [id,key,def] of [['cp-narrow','narrow',false],['cp-cut','cut',true]]){const b=p.querySelector('#'+id);if(b){b.checked=pref[key]??def;b.onchange=()=>{pref[key]=b.checked;save()}}}p.querySelector('#cp-history')?.addEventListener('click',history);
   }
   const auto=p.querySelector('#cp-auto');if(auto)auto.checked=!!pref.auto;const stat=p.querySelector('#cp-status');if(stat.textContent!==lastMessage)stat.textContent=lastMessage;
