@@ -243,23 +243,24 @@ load();setInterval(refresh,2500);
  @media print{body.cp-printing{background:#fff!important}body.cp-printing>*:not(#cp-overlay){display:none!important}body.cp-printing #cp-overlay{display:block!important;position:static!important;padding:0!important;overflow:visible!important;background:#fff!important}body.cp-printing .cp-top{display:none!important}body.cp-printing .cp-paper{display:block!important;box-shadow:none!important;width:var(--cp-width,72mm);padding:0!important;margin:0!important;max-width:100%!important}body.cp-printing .cp-paper div{break-inside:avoid}@page{margin:4mm}}
  `;document.head.appendChild(el);}
  function overlay(){document.getElementById('cp-overlay')?.remove();const p=document.createElement('div');p.id='cp-overlay';p.className='cp-overlay';p.setAttribute('role','dialog');p.setAttribute('aria-label','列印預覽');document.body.appendChild(p);return p;}
- function close(){document.getElementById('cp-overlay')?.remove();document.body.classList.remove('cp-printing');}
- async function preview(id,type){try{const data=await call('/api/print/receipt?bill='+encodeURIComponent(id)+'&kind='+type);data.reprint=data.bill.status==='paid';const p=overlay();p.innerHTML='<div class="cp-top"><button class="btn secondary" id="cp-close">關閉</button><label>紙寬 <select id="cp-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button class="btn" id="cp-system">列印</button>'+(navigator.usb?'<button class="btn secondary" id="cp-direct">USB 列印</button>':'')+'<span>使用已連接的 USB；管理員未連接瀏覽器 USB 時，交由雲端列印 APK 的現有佇列出單。</span></div>'+core.markup(data);
-  p.querySelector('#cp-close').onclick=close;p.querySelector('#cp-width').onchange=e=>p.style.setProperty('--cp-width',e.target.value);
+ function closePreview(){const panel=document.getElementById('cp-overlay');if(panel&&panel.parentNode)panel.parentNode.removeChild(panel);document.body.classList.remove('cp-printing');}
+ document.addEventListener('click',event=>{const button=event.target.closest&&event.target.closest('#cp-close');if(!button)return;event.preventDefault();event.stopImmediatePropagation();closePreview();},true);
+ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&document.getElementById('cp-overlay'))closePreview();});
+ async function preview(id,type){try{const data=await call('/api/print/receipt?bill='+encodeURIComponent(id)+'&kind='+type);data.reprint=data.bill.status==='paid';const p=overlay();p.innerHTML='<div class="cp-top"><button class="btn secondary" id="cp-close" type="button">關閉</button><label>紙寬 <select id="cp-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button class="btn" id="cp-system" type="button">USB 直接列印</button><button class="btn secondary" id="cp-windows" type="button">系統印表機列印</button>'+(state.role==='admin'?'<button class="btn secondary" id="cp-apk" type="button">交由雲端 APK 列印</button>':'')+''+(navigator.usb?'<button class="btn secondary" id="cp-direct">USB 列印</button>':'')+'<span>電腦 USB 連線被拒絕時，可用系統印表機列印並選擇實體印表機。APK 列印需另外按下對應按鈕。</span></div>'+core.markup(data);
+  p.querySelector('#cp-close').onclick=closePreview;p.querySelector('#cp-width').onchange=e=>p.style.setProperty('--cp-width',e.target.value);
   p.querySelector('#cp-system').onclick=async e=>{
- const button=e.currentTarget;if(busy)return;button.disabled=true;busy=true;
- try{
-  if(device?.opened){await send(data);message('已傳送 USB，請確認紙本');}
-  else if(state.role==='admin'&&(type==='kitchen'||data.bill.status==='paid')){
-   await call('/api/print/reprint',{billId:id,kind:type});
-   alert('已加入重印佇列，請保持雲端列印 APK 的對應自動列印功能開啟。');
-  }else{alert('請先連接 USB 印表機；尚未結帳的消費明細須使用本頁已連接的 USB 列印。');}
- }catch(err){alert(err.message);}finally{busy=false;button.disabled=false;}
+ const button=e.currentTarget;if(busy||connecting)return;
+ if(!device?.opened){alert('尚未連接 USB。若顯示 Access denied，請使用「系統印表機列印」並選擇實體印表機；不會自動轉送 APK。');return;}
+ button.disabled=true;busy=true;
+ try{await send(data);message('已傳送 USB，請確認紙本');}catch(error){alert(error.message);}finally{busy=false;button.disabled=false;}
 };
+  p.querySelector('#cp-windows').onclick=()=>{document.body.classList.add('cp-printing');try{window.print();}catch(error){document.body.classList.remove('cp-printing');alert(error.message);}};
+  p.querySelector('#cp-apk')?.addEventListener('click',async e=>{if(type==='receipt'&&data.bill.status!=='paid'){alert('此帳單尚未結帳，請使用 USB 或系統印表機列印消費明細。');return;}const button=e.currentTarget;button.disabled=true;try{await call('/api/print/reprint',{billId:id,kind:type});alert('已加入 APK 重印佇列，請確認雲端列印 APK 已啟用。');}catch(error){alert(error.message);}finally{button.disabled=false;}});
+
   p.querySelector('#cp-direct')?.addEventListener('click',async e=>{e.target.disabled=true;let owned=false;try{if(busy)throw Error('目前正在列印，請稍後再補印');if(!device)await connect();if(busy)throw Error('目前正在列印，請稍後再補印');busy=true;owned=true;await send(data);message('已傳送 USB，請確認紙本')}catch(e){alert(e.message)}finally{if(owned)busy=false;e.target.disabled=false}});
  }catch(e){alert(e.message)}}
  addEventListener('afterprint',()=>document.body.classList.remove('cp-printing'));
- async function history(){try{const p=overlay(),day=new Date(Date.now()+28800000).toISOString().slice(0,10);p.innerHTML='<div class="cp-history"><button class="btn secondary" id="cp-close">關閉</button><h2>訂單查詢／重印</h2><label>開單日期 <input type="date" id="cp-day" value="'+day+'"></label><div id="cp-list"></div></div>';p.querySelector('#cp-close').onclick=close;
+ async function history(){try{const p=overlay(),day=new Date(Date.now()+28800000).toISOString().slice(0,10);p.innerHTML='<div class="cp-history"><button class="btn secondary" id="cp-close">關閉</button><h2>訂單查詢／重印</h2><label>開單日期 <input type="date" id="cp-day" value="'+day+'"></label><div id="cp-list"></div></div>';p.querySelector('#cp-close').onclick=closePreview;
   const load=async()=>{try{const j=await call('/api/print/history?day='+p.querySelector('#cp-day').value),list=p.querySelector('#cp-list');list.innerHTML=j.bills.map(b=>'<section>第 '+b.table_no+' 桌 · '+esc(b.id)+' · '+(b.status==='paid'?'已結帳':'未結帳')+' · NT$'+b.total+'<br><button class="btn small secondary" data-cp-id="'+esc(b.id)+'" data-cp-kind="kitchen">點餐單</button> <button class="btn small secondary" data-cp-id="'+esc(b.id)+'" data-cp-kind="receipt">'+(b.status==='paid'?'重印結帳清單':'消費明細')+'</button></section>').join('')+'<h3>最近列印工作</h3>'+j.jobs.map(x=>'<section>'+esc(x.bill_id)+' · '+esc(x.kind==='kitchen'?'廚房':'結帳')+' · '+esc(({pending:'待列印',sending:'傳送中／需確認',sent:'已傳送 USB',failed:'失敗'})[x.status]||x.status)+'<br>'+esc(x.detail)+(x.status==='failed'||x.status==='sending'?' <button class="btn small secondary" data-cp-retry="'+esc(x.id)+'">確認後補印</button>':'')+'</section>').join('');list.querySelectorAll('[data-cp-id]').forEach(b=>b.onclick=()=>preview(b.dataset.cpId,b.dataset.cpKind));list.querySelectorAll('[data-cp-retry]').forEach(b=>b.onclick=async()=>{if(!confirm('請先確認紙本，補印可能再次出紙。確定補印？'))return;await call('/api/print/retry',{id:b.dataset.cpRetry});await load()});}catch(e){p.querySelector('#cp-list').textContent=e.message;}};
   p.querySelector('#cp-day').onchange=load;await load();
  }catch(e){alert(e.message)}}
@@ -303,6 +304,7 @@ load();setInterval(refresh,2500);
    if(error.name==='NotFoundError'&&!chosen)throw Error('未選擇印表機或已取消。若清單沒有印表機，請確認 USB 接線及電源。');
    const details=error.message||String(error);
    if(phase==='取得 USB 介面')throw Error('Chrome 無法取得 USB 印表機控制權：'+details+'。可能被 Windows 印表機驅動、其他程式或另一個分頁占用；若由系統驅動占用，網頁無法強制解除。');
+   if(/access denied/i.test(details))throw Error('Windows 拒絕 Chrome 存取 USB（Access denied）。請關閉其他列印程式與重複分頁後重試；若仍被拒絕，可在單據預覽選「系統印表機列印」，透過原有 Windows 驅動出紙。');
    throw Error(phase+'失敗：'+details);
   }finally{connecting=false;}
  }
@@ -313,7 +315,7 @@ load();setInterval(refresh,2500);
   let job;try{job=await call('/api/print/claim',{id:jobs[0].id,owner})}catch(e){message(e.message);return;}let ok=false,detail='';try{await send(job);ok=true;detail='已傳送 USB，請確認紙本';}catch(e){detail=e.message;pref.auto=false;save();}
   pref.ack={id:job.id,owner,status:ok?'sent':'failed',detail};save();await call('/api/print/result',pref.ack);delete pref.ack;save();message(detail);
  }catch(e){message('列印連線：'+e.message)}finally{busy=false;}}
- function decorate(){if(!state.role){close();pref.auto=false;save();return;}if(path==='/')return;const main=document.querySelector('.admin-main');if(!main)return;
+ function decorate(){if(!state.role){closePreview();pref.auto=false;save();return;}if(path==='/')return;const main=document.querySelector('.admin-main');if(!main)return;
   let p=document.getElementById('cp-controls');if(!p){p=document.createElement('section');p.id='cp-controls';p.className='cp-controls';p.innerHTML='<div class="actions"><strong>列印設定</strong>'+(navigator.usb?'<button class="btn small secondary" id="cp-connect" type="button">連接 USB 印表機</button><button class="btn small secondary" id="cp-test" type="button">測試列印</button><label><input type="checkbox" id="cp-auto">USB 自動列印</label><label><input type="checkbox" id="cp-narrow">58 mm 紙</label><label><input type="checkbox" id="cp-cut">自動切紙</label>':'<span>此瀏覽器使用「列印／儲存 PDF」功能。</span>')+(state.role==='admin'?'<button class="btn small secondary" id="cp-history">訂單查詢／重印</button>':'')+'<span id="cp-last"></span></div><div class="cp-status" id="cp-status"></div><small>USB 自動列印需先連接並保持本頁開啟；每筆工作由一台裝置接收。系統列印需手動確認。</small>';main.prepend(p);
    p.querySelector('#cp-connect')?.addEventListener('click',async e=>{const button=e.currentTarget;button.disabled=true;try{await connect();}catch(error){message(error.message);}finally{button.disabled=false;}});
    p.querySelector('#cp-test')?.addEventListener('click',async e=>{const button=e.currentTarget;if(busy||connecting){message('目前正在列印或連線，請稍候。');return;}if(!device?.opened){message('請先按「連接 USB 印表機」完成連線。');return;}button.disabled=true;busy=true;try{await send({id:'usb-test',kind:'kitchen',created_at:new Date().toISOString(),bill:{id:'USB 測試',table_no:'—'},lines:[{name:'USB 中文測試列印',price:0,qty:1,note:'這是測試單，非實際訂單。'}]});message('測試資料已傳送，請確認印表機是否出紙。');}catch(error){message('測試列印失敗：'+error.message);}finally{busy=false;button.disabled=false;}});
