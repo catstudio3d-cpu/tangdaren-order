@@ -246,7 +246,43 @@ load();setInterval(refresh,2500);
  function closePreview(){const panel=document.getElementById('cp-overlay');if(panel&&panel.parentNode)panel.parentNode.removeChild(panel);document.body.classList.remove('cp-printing');}
  document.addEventListener('click',event=>{const button=event.target.closest&&event.target.closest('#cp-close');if(!button)return;event.preventDefault();event.stopImmediatePropagation();closePreview();},true);
  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&document.getElementById('cp-overlay'))closePreview();});
- async function preview(id,type){try{const data=await call('/api/print/receipt?bill='+encodeURIComponent(id)+'&kind='+type);data.reprint=data.bill.status==='paid';const p=overlay();p.innerHTML='<div class="cp-top"><button class="btn secondary" id="cp-close" type="button">關閉</button><label>紙寬 <select id="cp-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button class="btn" id="cp-system" type="button">USB 直接列印</button><button class="btn secondary" id="cp-windows" type="button">系統印表機列印</button>'+(state.role==='admin'?'<button class="btn secondary" id="cp-apk" type="button">交由雲端 APK 列印</button>':'')+''+(navigator.usb?'<button class="btn secondary" id="cp-direct">USB 列印</button>':'')+'<span>電腦 USB 連線被拒絕時，可用系統印表機列印並選擇實體印表機。APK 列印需另外按下對應按鈕。</span></div>'+core.markup(data);
+
+ function desktopPreview(data,id,type){
+  const panel=overlay(),frame=document.createElement('iframe');
+  frame.title='單據列印預覽';frame.style.cssText='display:block;width:100%;height:calc(100dvh - 36px);min-height:85vh;border:0;background:#f7f8f5';
+  frame.setAttribute('sandbox','allow-scripts allow-modals');
+  panel.appendChild(frame);
+  const childCode=`(function(){
+   function send(action){parent.postMessage({tangdarenReceipt:true,action:action},'*');}
+   document.getElementById('receipt-close').onclick=function(){send('close');};
+   document.getElementById('receipt-system').onclick=function(){try{window.print();}catch(error){document.getElementById('receipt-status').textContent='無法開啟列印：'+error.message;}};
+   document.getElementById('receipt-usb').onclick=function(){send('usb');};
+   var apk=document.getElementById('receipt-apk');if(apk)apk.onclick=function(){send('apk');};
+   document.getElementById('receipt-width').onchange=function(){document.documentElement.style.setProperty('--paper-width',this.value);};
+   document.addEventListener('keydown',function(e){if(e.key==='Escape')send('close');});
+   window.addEventListener('message',function(e){if(e.source!==parent||!e.data||!e.data.tangdarenReceiptResult)return;document.getElementById('receipt-status').textContent=e.data.message;});
+  })();`;
+  const styles='*{box-sizing:border-box}body{margin:0;padding:12px;background:#f7f8f5;color:#173c36;font:16px/1.5 sans-serif}.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 auto 14px;max-width:900px}button,select{font:inherit;padding:12px;border:1px solid #d9e4dd;border-radius:10px;background:white;color:#164f46;cursor:pointer}button.primary{background:#164f46;color:white}.help,#receipt-status{max-width:900px;margin:10px auto}.cp-paper{width:var(--paper-width,72mm);max-width:100%;margin:20px auto;background:white;padding:4mm;color:black;white-space:pre-wrap;overflow-wrap:anywhere;font:16px/1.5 sans-serif}.cp-heading{text-align:center;font-size:20px;font-weight:bold}@media print{body{padding:0;background:white}.toolbar,.help,#receipt-status{display:none!important}.cp-paper{margin:0;padding:0;max-width:100%}.cp-paper div{break-inside:avoid}@page{margin:4mm}}';
+  frame.srcdoc='<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>'+styles+'</style></head><body><div class="toolbar"><button type="button" id="receipt-close">關閉</button><label>紙寬 <select id="receipt-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button type="button" class="primary" id="receipt-system">系統印表機列印</button><button type="button" id="receipt-usb">USB 直接列印</button>'+(state.role==='admin'?'<button type="button" id="receipt-apk">交由雲端 APK 列印</button>':'')+'</div><p class="help">電腦請按「系統印表機列印」，選擇 CP-Q1UN 實體印表機。USB 直接列印須先於後台成功連線。</p><p id="receipt-status" role="status"></p>'+core.markup(data)+'<script>'+childCode+'<'+ '/script></body></html>';
+  function respond(text){if(frame.contentWindow)frame.contentWindow.postMessage({tangdarenReceiptResult:true,message:text},'*');}
+  async function onMessage(event){
+   if(event.source!==frame.contentWindow||!event.data||event.data.tangdarenReceipt!==true)return;
+   const action=event.data.action;
+   if(action==='close'){window.removeEventListener('message',onMessage);closePreview();return;}
+   if(!panel.isConnected){window.removeEventListener('message',onMessage);return;}
+   if(action!=='usb'&&action!=='apk')return;
+   if(busy||connecting){respond('目前正在列印或連線，請稍候。');return;}
+   if(action==='usb'&&!device?.opened){respond('USB 尚未連線成功。請用「系統印表機列印」選擇 CP-Q1UN；Chrome 的 Access denied 無法由網頁解除。');return;}
+   if(action==='apk'&&(state.role!=='admin'||type==='receipt'&&data.bill.status!=='paid')){respond('此單據無法交由 APK 重印。');return;}
+   busy=true;
+   try{if(action==='usb'){await send(data);respond('已傳送 USB，請確認紙本。');}else{await call('/api/print/reprint',{billId:id,kind:type});respond('已加入 APK 重印佇列。');}}
+   catch(error){respond('列印失敗：'+error.message);}finally{busy=false;}
+  }
+  window.addEventListener('message',onMessage);
+  new MutationObserver(function(records,observer){if(!panel.isConnected){window.removeEventListener('message',onMessage);observer.disconnect();}}).observe(document.body,{childList:true});
+ }
+
+ async function preview(id,type){try{const data=await call('/api/print/receipt?bill='+encodeURIComponent(id)+'&kind='+type);data.reprint=data.bill.status==='paid';if(!/Android|iPhone|iPad/i.test(navigator.userAgent)){desktopPreview(data,id,type);return;}const p=overlay();p.innerHTML='<div class="cp-top"><button class="btn secondary" id="cp-close" type="button">關閉</button><label>紙寬 <select id="cp-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button class="btn" id="cp-system" type="button">USB 直接列印</button><button class="btn secondary" id="cp-windows" type="button">系統印表機列印</button>'+(state.role==='admin'?'<button class="btn secondary" id="cp-apk" type="button">交由雲端 APK 列印</button>':'')+''+(navigator.usb?'<button class="btn secondary" id="cp-direct">USB 列印</button>':'')+'<span>電腦 USB 連線被拒絕時，可用系統印表機列印並選擇實體印表機。APK 列印需另外按下對應按鈕。</span></div>'+core.markup(data);
   p.querySelector('#cp-close').onclick=closePreview;p.querySelector('#cp-width').onchange=e=>p.style.setProperty('--cp-width',e.target.value);
   p.querySelector('#cp-system').onclick=async e=>{
  const button=e.currentTarget;if(busy||connecting)return;
