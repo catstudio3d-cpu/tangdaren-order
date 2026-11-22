@@ -265,7 +265,7 @@ load();setInterval(refresh,2500);
    window.addEventListener('message',function(e){if(e.source!==parent||!e.data||!e.data.tangdarenReceiptResult)return;document.getElementById('receipt-status').textContent=e.data.message;});
   })();`;
   const styles='*{box-sizing:border-box}body{margin:0;padding:12px;background:#f7f8f5;color:#173c36;font:16px/1.5 sans-serif}.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 auto 14px;max-width:900px}button,select,a.close-link{font:inherit;padding:12px;border:1px solid #d9e4dd;border-radius:10px;background:white;color:#164f46;cursor:pointer}a.close-link{display:inline-block;text-decoration:none}button.primary{background:#164f46;color:white}.help,#receipt-status{max-width:900px;margin:10px auto}.cp-paper{width:var(--paper-width,72mm);max-width:100%;margin:20px auto;background:white;padding:4mm;color:black;white-space:pre-wrap;overflow-wrap:anywhere;font:16px/1.5 sans-serif}.cp-heading{text-align:center;font-size:20px;font-weight:bold}@media print{body{padding:0;background:white}.toolbar,.help,#receipt-status{display:none!important}.cp-paper{margin:0;padding:0;max-width:100%}.cp-paper div{break-inside:avoid}@page{margin:4mm}}';
-  frame.srcdoc='<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>'+styles+'</style></head><body><div class="toolbar"><a class="close-link" id="receipt-return" href="'+esc(siteHref(path))+'" target="_top">關閉並返回工作台</a><label>紙寬 <select id="receipt-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button type="button" class="primary" id="receipt-system">系統印表機列印</button><button type="button" id="receipt-usb">USB 直接列印</button>'+(allowed()?'<button type="button" id="receipt-apk">交由雲端 APK 列印</button>':'')+'</div><p class="help">請先在 Windows 安裝並試印 CP-Q1UN／PrinterPOS-80，再按「系統印表機列印」選擇它；若清單沒有，網站無法代為新增 Windows 印表機。</p><p id="receipt-status" role="status"></p>'+core.markup(data)+'<script>'+childCode+'<'+ '/script></body></html>';
+  frame.srcdoc='<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>'+styles+'</style></head><body><div class="toolbar"><a class="close-link" id="receipt-return" href="'+esc(siteHref(path))+'" target="_top">關閉並返回工作台</a><label>紙寬 <select id="receipt-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button type="button" class="primary" id="receipt-system">系統印表機列印</button><button type="button" id="receipt-usb">依列印設定直接列印</button>'+(allowed()?'<button type="button" id="receipt-apk">交由雲端 APK 列印</button>':'')+'</div><p class="help">請先在 Windows 安裝並試印 CP-Q1UN／PrinterPOS-80，再按「系統印表機列印」選擇它；若清單沒有，網站無法代為新增 Windows 印表機。</p><p id="receipt-status" role="status"></p>'+core.markup(data)+'<script>'+childCode+'<'+ '/script></body></html>';
   function respond(text){if(frame.contentWindow)frame.contentWindow.postMessage({tangdarenReceiptResult:true,message:text},'*');}
   async function onMessage(event){
    if(event.source!==frame.contentWindow||!event.data||event.data.tangdarenReceipt!==true)return;
@@ -274,7 +274,7 @@ load();setInterval(refresh,2500);
    if(!panel.isConnected){window.removeEventListener('message',onMessage);return;}
    if(action!=='usb'&&action!=='apk')return;
    if(busy||connecting){respond('目前正在列印或連線，請稍候。');return;}
-   if(action==='usb'&&!ready()){respond('請先回工作台連接 Windows USB 列印程式；也可使用系統印表機列印。');return;}
+   if(action==='usb'&&!ready()){respond('請先到「列印設定」連接印表機；也可使用系統印表機列印。');return;}
    if(action==='apk'&&(!allowed()||type==='receipt'&&data.bill.status!=='paid')){respond('此單據無法交由 APK 重印。');return;}
    busy=true;
    try{if(action==='usb'){await sendManual(data);respond('已送至印表機，請確認紙本。');}else{await call('/api/print/reprint',{billId:id,kind:type});respond('已加入 APK 重印佇列。');}}
@@ -284,11 +284,11 @@ load();setInterval(refresh,2500);
   new MutationObserver(function(records,observer){if(!panel.isConnected){window.removeEventListener('message',onMessage);observer.disconnect();}}).observe(document.body,{childList:true});
  }
 
- async function preview(id,type){try{const data=await call('/api/print/receipt?bill='+encodeURIComponent(id)+'&kind='+type);data.reprint=data.bill.status==='paid';if(!/Android|iPhone|iPad/i.test(navigator.userAgent)){desktopPreview(data,id,type);return;}const p=overlay();p.innerHTML='<div class="cp-top"><a class="btn secondary" id="cp-exit" href="'+esc(siteHref(path))+'">關閉並返回工作台</a><label>紙寬 <select id="cp-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button class="btn" id="cp-system" type="button">USB 直接列印</button><button class="btn secondary" id="cp-windows" type="button">系統印表機列印</button>'+(state.role==='admin'?'<button class="btn secondary" id="cp-apk" type="button">交由雲端 APK 列印</button>':'')+''+(navigator.usb?'<button class="btn secondary" id="cp-direct">USB 列印</button>':'')+'<span>電腦 USB 連線被拒絕時，可用系統印表機列印並選擇實體印表機。APK 列印需另外按下對應按鈕。</span></div>'+core.markup(data);
+ async function preview(id,type){try{const data=await call('/api/print/receipt?bill='+encodeURIComponent(id)+'&kind='+type);data.reprint=data.bill.status==='paid';if(!/Android|iPhone|iPad/i.test(navigator.userAgent)){desktopPreview(data,id,type);return;}const p=overlay();p.innerHTML='<div class="cp-top"><a class="btn secondary" id="cp-exit" href="'+esc(siteHref(path))+'">關閉並返回工作台</a><label>紙寬 <select id="cp-width"><option value="72mm">80 mm 收據紙</option><option value="50mm">58 mm 收據紙</option><option value="180mm">A4</option></select></label><button class="btn" id="cp-system" type="button">依列印設定直接列印</button><button class="btn secondary" id="cp-windows" type="button">系統印表機列印</button>'+(state.role==='admin'?'<button class="btn secondary" id="cp-apk" type="button">交由雲端 APK 列印</button>':'')+''+(navigator.usb?'<button class="btn secondary" id="cp-direct">USB 列印</button>':'')+'<span>電腦 USB 連線被拒絕時，可用系統印表機列印並選擇實體印表機。APK 列印需另外按下對應按鈕。</span></div>'+core.markup(data);
   p.querySelector('#cp-width').onchange=e=>p.style.setProperty('--cp-width',e.target.value);
   p.querySelector('#cp-system').onclick=async e=>{
  const button=e.currentTarget;if(busy||connecting)return;
- if(!ready()){alert('尚未連接 USB。若顯示 Access denied，請使用「系統印表機列印」並選擇實體印表機；不會自動轉送 APK。');return;}
+ if(!ready()){alert('尚未連接印表機，請先到列印設定完成連線；也可使用系統印表機列印。');return;}
  button.disabled=true;busy=true;
  try{await sendManual(data);message('已送至印表機，請確認紙本');}catch(error){alert(error.message);}finally{busy=false;button.disabled=false;}
 };
@@ -305,6 +305,79 @@ load();setInterval(refresh,2500);
 
 
  const windowsPC=/Windows/i.test(navigator.userAgent);
+
+ const appleMobile=/iPhone|iPad|iPod/i.test(navigator.userAgent)||/Macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1;
+ const defaultTransport=windowsPC?'windows':navigator.usb?'usb':'system';
+ const mode=()=>['windows','usb','serial','ble','system'].includes(pref.transport)?pref.transport:defaultTransport;
+ let serialPort=null,bleDevice=null,bleCharacteristic=null;
+ const transportNames={windows:'Windows 驅動 USB',usb:'USB 直接列印',serial:'藍牙 SPP',ble:'藍牙 BLE',system:'系統列印／AirPrint（手動）'};
+ function receiptParts(job){return [new Uint8Array([27,64]),...core.bands(job,pref.narrow?384:576),new Uint8Array([27,100,4]),...(pref.cut!==false?[new Uint8Array([29,86,66,0])]:[])];}
+ function bluetoothLost(type){if(mode()!==type)return;pref.auto=false;save();message('藍牙已中斷，請到列印設定重新連接；請確認紙本後再補印。');}
+ function uuid(value,label){const raw=String(value||'').trim().toLowerCase();if(/^[a-f0-9]{4,8}$/.test(raw))return parseInt(raw,16);if(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(raw))return raw;throw Error('請依印表機規格填寫正確的 '+label+' UUID。');}
+ async function connectSerial(){
+  if(!navigator.serial?.requestPort)throw Error('此瀏覽器未提供藍牙 SPP。請改用支援的 Chrome 或原生列印程式。');
+  if(busy||connecting)throw Error('目前正在列印或連線，請稍候。');
+  if(serialPort?.writable){message('藍牙 SPP 已連接。');return;}
+  connecting=true;let chosen;
+  try{
+   chosen=await navigator.serial.requestPort({filters:[{bluetoothServiceClassId:'00001101-0000-1000-8000-00805f9b34fb'}]});
+   await chosen.open({baudRate:9600});serialPort=chosen;
+   chosen.addEventListener?.('disconnect',()=>{if(serialPort===chosen){serialPort=null;bluetoothLost('serial');}});
+   message('藍牙 SPP 已連接。請先測試列印。');
+  }catch(error){if(chosen&&chosen!==serialPort)await chosen.close().catch(()=>{});throw Error(error.name==='NotFoundError'?'未選擇藍牙印表機。請先在系統藍牙設定配對，再重新連接。':'藍牙 SPP 連接失敗：'+error.message);}
+  finally{connecting=false;}
+ }
+ async function connectBLE(){
+  if(!navigator.bluetooth?.requestDevice)throw Error('此瀏覽器未提供 BLE 連線。請改用支援的 Chrome 或系統列印。');
+  if(busy||connecting)throw Error('目前正在列印或連線，請稍候。');
+  if(bleDevice?.gatt?.connected&&bleCharacteristic){message('BLE 印表機已連接。');return;}
+  const service=uuid(pref.bleService,'Service'),characteristic=uuid(pref.bleCharacteristic,'Characteristic');
+  connecting=true;let chosen;
+  try{
+   chosen=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:[service]});
+   const server=await chosen.gatt.connect(),primary=await server.getPrimaryService(service),write=await primary.getCharacteristic(characteristic);
+   if(!write.properties.write&&!write.properties.writeWithoutResponse)throw Error('指定的 Characteristic 不支援寫入。');
+   bleDevice=chosen;bleCharacteristic=write;
+   chosen.addEventListener('gattserverdisconnected',()=>{if(bleDevice===chosen){bleCharacteristic=null;bluetoothLost('ble');}});
+   message('BLE 已連接：'+(chosen.name||'印表機')+'。請先測試列印。');
+  }catch(error){if(chosen&&chosen!==bleDevice)chosen.gatt?.disconnect();throw Error(error.name==='NotFoundError'?'未選擇 BLE 印表機，或找不到設定的服務。請確認廠商提供的 UUID。':'BLE 連接失敗：'+error.message);}
+  finally{connecting=false;}
+ }
+ async function disconnectPrinter(){
+  if(busy||connecting)throw Error('請等待目前列印或連線完成。');
+  pref.auto=false;save();
+  if(mode()==='windows')bridgeReady=false;
+  if(mode()==='usb'&&device?.opened){await device.close();device=null;}
+  if(mode()==='serial'&&serialPort){await serialPort.close();serialPort=null;}
+  if(mode()==='ble'){bleDevice?.gatt?.disconnect();bleCharacteristic=null;bleDevice=null;}
+  message('已中斷目前連線，自動列印已關閉。');
+ }
+ function connectionOptions(){return [
+  ...(windowsPC?[['windows','Windows USB（已安裝驅動）',true]]:[]),
+  ['usb','USB 直接連接（Android OTG／支援的 Chrome）',!!navigator.usb],
+  ['serial','藍牙：傳統 SPP',!!navigator.serial?.requestPort],
+  ['ble','藍牙：BLE',!!navigator.bluetooth?.requestDevice],
+  ['system','系統列印／Apple AirPrint（手動）',true]
+ ].map(([value,label,enabled])=>'<option value="'+value+'"'+(value===mode()?' selected':'')+(enabled?'':' disabled')+'>'+label+(enabled?'':' — 此瀏覽器不支援')+'</option>').join('');}
+ function platformSettings(){
+  const label=appleMobile?'iPhone／iPad':/Android/i.test(navigator.userAgent)?'Android 手機／平板':windowsPC?'Windows':/Mac/i.test(navigator.userAgent)?'Mac':'目前裝置';
+  return '<p>目前裝置：<strong>'+label+'</strong>。藍牙直接列印適用支援 ESC/POS 的收據印表機，需先測試確認相容。</p><label for="cp-transport">連接方式 <select id="cp-transport">'+connectionOptions()+'</select></label><div id="cp-ble-fields" style="margin:14px 0"><label>BLE Service UUID <input id="cp-ble-service" value="'+esc(pref.bleService||'')+'" placeholder="依印表機廠商規格" maxlength="36"></label><label>BLE Characteristic UUID <input id="cp-ble-characteristic" value="'+esc(pref.bleCharacteristic||'')+'" placeholder="可寫入的特徵 UUID" maxlength="36"></label></div><div class="actions" style="margin:14px 0"><button type="button" class="btn secondary" id="cp-transport-connect">連接印表機</button><button type="button" class="btn secondary" id="cp-disconnect">中斷連線</button></div><p id="cp-transport-help"></p>';
+ }
+ function syncPlatformSettings(p){
+  const selector=p.querySelector('#cp-transport');if(!selector)return;
+  const type=mode(),help=p.querySelector('#cp-transport-help');
+  const tips={windows:'使用已安裝的 Windows 驅動。請啟動本機列印程式，展開下方 Windows USB 連線並貼上配對碼。',usb:'Android 手機／平板需支援 USB OTG，使用 OTG 線或轉接頭連接印表機，並允許 Chrome 存取 USB。',serial:'先在系統藍牙設定配對印表機，再按連接。需瀏覽器提供 Web Serial 藍牙 SPP；舊版 Android／Chrome 可能不支援。',ble:'需印表機支援 BLE。請依廠商規格填寫 Service 與可寫入的 Characteristic UUID，再搜尋連接；傳統藍牙 SPP 印表機請選 SPP。',system:appleMobile?'使用 iPhone／iPad 的 AirPrint；印表機須支援 AirPrint，且與裝置在相同網路。需手動確認，無法以本頁自動出單。':'使用系統列印視窗，選擇已安裝或 AirPrint 印表機。需手動確認，無法以此模式自動出單。'};
+  if(help.textContent!==tips[type])help.textContent=tips[type];
+  p.querySelector('#cp-ble-fields').hidden=type!=='ble';
+  p.querySelector('#cp-transport-connect').hidden=type==='windows'||type==='system';
+  p.querySelector('#cp-disconnect').hidden=type==='system';
+  const windowsPanel=p.querySelector('#cp-windows-pair');if(windowsPanel)windowsPanel.hidden=type!=='windows';
+ }
+ function systemTest(job){
+  const panel=overlay();panel.innerHTML='<div class="cp-top"><a class="btn secondary" id="cp-exit" href="'+esc(siteHref(path))+'">關閉</a><button type="button" class="btn" id="cp-test-system">系統列印／AirPrint</button></div>'+core.markup(job);
+  panel.querySelector('#cp-test-system').onclick=()=>{document.body.classList.add('cp-printing');try{window.print();}catch(error){document.body.classList.remove('cp-printing');message(error.message);}};
+ }
+
  let bridgeReady=false,bridgePrinter='',bridgeToken=sessionStorage.getItem('tangdaren-windows-pair')||'';
  async function bridgeCall(route,body){
   if(!bridgeToken)throw Error('請先連接 Windows USB 印表機。');
@@ -345,11 +418,18 @@ load();setInterval(refresh,2500);
 
  function connectWindows(){const panel=ensureWindowsPair();panel.open=true;panel.querySelector('input').focus();message('請在 Windows USB 連線設定貼上配對碼。');}
 
- const ready=()=>windowsPC?bridgeReady:!!device?.opened;
+ const ready=()=>mode()==='windows'?bridgeReady:mode()==='usb'?!!device?.opened:mode()==='serial'?!!serialPort?.writable:mode()==='ble'?!!(bleDevice?.gatt?.connected&&bleCharacteristic):false;
  async function sendConfigured(job){
-  if(!windowsPC)return send(job);
+  const type=mode();if(type==='usb')return send(job);
+  if(type==='serial'||type==='ble'){
+   if(!ready())throw Error('請先連接藍牙印表機。');
+   const parts=receiptParts(job);if(parts.reduce((sum,part)=>sum+part.length,0)>8000000)throw Error('單據過長，請分批列印。');
+   if(type==='serial'){const writer=serialPort.writable.getWriter();try{for(const part of parts)for(let offset=0;offset<part.length;offset+=1024)await writer.write(part.subarray(offset,offset+1024));}finally{writer.releaseLock();}return;}
+   const write=bleCharacteristic;for(const part of parts)for(let offset=0;offset<part.length;offset+=20){const chunk=part.subarray(offset,offset+20);if(write.properties.write&&write.writeValueWithResponse)await write.writeValueWithResponse(chunk);else if(write.properties.writeWithoutResponse&&write.writeValueWithoutResponse){await write.writeValueWithoutResponse(chunk);await new Promise(resolve=>setTimeout(resolve,15));}else await write.writeValue(chunk);}return;
+  }
+  if(type==='system')throw Error('系統列印／AirPrint 需手動確認，請使用單據中的系統列印按鈕。');
   if(!bridgeReady)throw Error('請先連接 Windows USB 印表機。');
-  const parts=[new Uint8Array([27,64]),...core.bands(job,pref.narrow?384:576),new Uint8Array([27,100,4]),...(pref.cut!==false?[new Uint8Array([29,86,66,0])]:[])];
+  const parts=receiptParts(job);
   const length=parts.reduce((sum,part)=>sum+part.length,0);
   if(length>8000000)throw Error('單據過長，請分批列印。');
   const bytes=new Uint8Array(length);let offset=0;for(const part of parts){bytes.set(part,offset);offset+=part.length;}
@@ -360,7 +440,9 @@ load();setInterval(refresh,2500);
 
  let connecting=false;
  async function connect(){
-  if(windowsPC)return connectWindows();
+  if(mode()==='windows')return connectWindows();if(mode()==='serial')return connectSerial();if(mode()==='ble')return connectBLE();if(mode()==='system'){message('此模式請使用系統列印／AirPrint，無需 USB 配對。');return;}return connectUSB();
+ }
+ async function connectUSB(){
   if(busy||connecting)throw Error('目前正在列印或連線，請稍候。');
   if(!navigator.usb)throw Error('此 Chrome 不支援 WebUSB，請以電腦 Chrome 開啟 HTTPS 網站。');
   connecting=true;let chosen=null,phase='選擇印表機';
@@ -413,9 +495,9 @@ load();setInterval(refresh,2500);
   const settingsPage=path==='/printing';
   if(path==='/kitchen'||path==='/cashier'){const work=path==='/kitchen'?'kitchen':'receipt';if(pref.work!==work){pref.work=work;save();}}
   let p=document.getElementById('cp-controls');if(!p){p=document.createElement('section');p.id='cp-controls';p.className='cp-controls';
-   const autoMarkup='<label><input type="checkbox" id="cp-auto">收到訂單自動列印</label>';
+   const autoMarkup='<label><input type="checkbox" id="cp-auto">訂單(結帳)自動列印</label>';
    if(settingsPage){
-    p.innerHTML='<div class="actions"><strong>印表機設定</strong>'+(windowsPC||navigator.usb?(windowsPC?'':'<button class="btn small secondary" id="cp-connect" type="button">連接 USB 印表機</button>')+'<button class="btn small secondary" id="cp-test" type="button">測試列印</button><label><input type="checkbox" id="cp-narrow">58 mm 紙</label><label><input type="checkbox" id="cp-cut">自動切紙</label>':'<span>此瀏覽器使用系統印表機列印。</span>')+(windowsPC?'<button class="btn small secondary" id="cp-download" type="button">下載 Windows 列印程式</button>':'')+'<span id="cp-last"></span></div><div class="cp-status" id="cp-status" role="status"></div><small>Windows 自動出單：啟動本機列印程式 → 連接印表機 → 測試列印，再回廚房或前台勾選自動列印。請保持網頁與本機程式開啟。</small>';
+    p.innerHTML=platformSettings()+'<div class="actions"><strong>紙張與測試</strong><button class="btn small secondary" id="cp-test" type="button">測試列印</button><label><input type="checkbox" id="cp-narrow">58 mm 紙</label><label><input type="checkbox" id="cp-cut">自動切紙</label>'+(windowsPC?'<button class="btn small secondary" id="cp-download" type="button">下載 Windows 列印程式</button>':'')+'<span id="cp-last"></span></div><div class="cp-status" id="cp-status" role="status" aria-live="polite"></div><small>USB／藍牙連接成功並測試出紙後，再回廚房或前台啟用「訂單(結帳)自動列印」。請保持網頁開啟。系統列印／AirPrint 需手動確認。</small>';
     document.getElementById('cp-settings-host').appendChild(p);
    }else{
     p.innerHTML='<div class="actions"><button class="btn small secondary" id="cp-history" type="button">訂單查詢／重印</button>'+autoMarkup+'</div>';
@@ -430,19 +512,40 @@ load();setInterval(refresh,2500);
     message('已下載列印程式。請在下載資料夾啟動 PowerShell，執行：powershell -NoProfile -ExecutionPolicy Bypass -File .\\windows-print-bridge.ps1，選印表機後再按連接。');
    }catch(error){message(error.message);}});
 
-   if(!windowsPC)p.querySelector('#cp-connect')?.addEventListener('click',async e=>{const button=e.currentTarget;button.disabled=true;try{await connect();}catch(error){message(error.message);}finally{button.disabled=false;}});
-   p.querySelector('#cp-test')?.addEventListener('click',async e=>{const button=e.currentTarget;if(busy||connecting){message('目前正在列印或連線，請稍候。');return;}if(!ready()){message('請先按「連接 USB 印表機」完成連線。');return;}button.disabled=true;busy=true;try{await sendConfigured({id:'usb-test:'+crypto.randomUUID(),kind:'kitchen',created_at:new Date().toISOString(),bill:{id:'USB 測試',table_no:'—'},lines:[{name:'USB 中文測試列印',price:0,qty:1,note:'這是測試單，非實際訂單。'}]});message('測試資料已傳送，請確認印表機是否出紙。');}catch(error){message('測試列印失敗：'+error.message);}finally{busy=false;button.disabled=false;}});
-p.querySelector('#cp-auto')?.addEventListener('change',e=>{if(e.target.checked&&!['/kitchen','/cashier'].includes(path)){e.target.checked=false;message('請在廚房出餐或前台結帳頁啟用');return;}if(e.target.checked&&!ready()){e.target.checked=false;message('請先到左側「列印設定」連接印表機。');toast('請先到「列印設定」連接印表機，再啟用自動列印。');return;}if(e.target.checked&&!confirm('啟用後會列印此工作台尚未處理的待列印工作（包含較早的待印單）。請確認只在一台裝置啟用。')){e.target.checked=false;return;}pref.auto=e.target.checked;save();poll()});
+
+   p.querySelector('#cp-transport')?.addEventListener('change',event=>{
+    if(busy||connecting){event.target.value=mode();message('請等待目前列印或連線完成。');return;}
+    pref.transport=event.target.value;pref.auto=false;save();message('已選擇 '+transportNames[mode()]+'。請連接並測試列印。');decorate();
+   });
+   for(const [id,key] of [['cp-ble-service','bleService'],['cp-ble-characteristic','bleCharacteristic']]){
+    p.querySelector('#'+id)?.addEventListener('change',event=>{
+     if(busy||connecting){event.target.value=pref[key]||'';message('請等待目前列印或連線完成。');return;}
+     pref[key]=event.target.value.trim().toLowerCase();if(mode()==='ble'){pref.auto=false;bleCharacteristic=null;bleDevice?.gatt?.disconnect();}save();
+    });
+   }
+   p.querySelector('#cp-transport-connect')?.addEventListener('click',async event=>{
+    const button=event.currentTarget;button.disabled=true;try{await connect();}catch(error){message(error.message);}finally{button.disabled=false;}
+   });
+   p.querySelector('#cp-disconnect')?.addEventListener('click',async()=>{try{await disconnectPrinter();}catch(error){message(error.message);}});
+   p.querySelector('#cp-test')?.addEventListener('click',async event=>{
+    const job={id:'printer-test:'+crypto.randomUUID(),kind:'kitchen',created_at:new Date().toISOString(),bill:{id:'列印測試',table_no:'—'},lines:[{name:'中文測試列印',price:0,qty:1,note:'這是測試單，非實際訂單。'}]};
+    if(mode()==='system'){systemTest(job);return;}
+    const button=event.currentTarget;if(busy||connecting){message('目前正在列印或連線，請稍候。');return;}
+    if(!ready()){message('請先在本頁連接印表機。');return;}button.disabled=true;busy=true;
+    try{await sendConfigured(job);message('測試資料已傳送，請確認紙本。');}catch(error){message('測試列印失敗：'+error.message);}finally{busy=false;button.disabled=false;}
+   });
+
+p.querySelector('#cp-auto')?.addEventListener('change',e=>{if(e.target.checked&&!['/kitchen','/cashier'].includes(path)){e.target.checked=false;message('請在廚房出餐或前台結帳頁啟用');return;}if(e.target.checked&&mode()==='system'){e.target.checked=false;pref.auto=false;save();toast('系統列印／AirPrint 需手動確認，不能啟用自動列印。');return;}if(e.target.checked&&!ready()){e.target.checked=false;message('請先到左側「列印設定」連接印表機。');toast('請先到「列印設定」連接印表機，再啟用自動列印。');return;}if(e.target.checked&&!confirm('啟用後會列印此工作台尚未處理的待列印工作（包含較早的待印單）。請確認只在一台裝置啟用。')){e.target.checked=false;return;}pref.auto=e.target.checked;save();poll()});
    for(const [id,key,def] of [['cp-narrow','narrow',false],['cp-cut','cut',true]]){const b=p.querySelector('#'+id);if(b){b.checked=pref[key]??def;b.onchange=()=>{pref[key]=b.checked;save()}}}p.querySelector('#cp-history')?.addEventListener('click',history);
   }
-  if(settingsPage&&windowsPC)ensureWindowsPair();
+  if(settingsPage){if(windowsPC&&mode()==='windows')ensureWindowsPair();syncPlatformSettings(p);}
   const auto=p.querySelector('#cp-auto');if(auto)auto.checked=!!pref.auto;const connectionButton=p.querySelector('#cp-connect');if(connectionButton&&windowsPC){const label=bridgeReady?'Windows USB 已連接':'連接 USB 印表機（Windows）';if(connectionButton.textContent!==label)connectionButton.textContent=label;}const stat=p.querySelector('#cp-status');if(stat&&stat.textContent!==lastMessage)stat.textContent=lastMessage;
   if(settingsPage&&lastBill&&kind()==='receipt'){const slot=p.querySelector('#cp-last');if(!slot.firstChild){const b=document.createElement('button');b.className='btn small secondary';b.textContent='列印最近結帳清單';b.onclick=()=>preview(lastBill,'receipt');slot.appendChild(b)}}
   if(path==='/kitchen'){const bills=grouped();document.querySelectorAll('.kitchen-grid>.ticket').forEach((card,i)=>{if(card.querySelector('[data-cp-ticket]')||!bills[i])return;const b=document.createElement('button');b.dataset.cpTicket='1';b.className='btn small secondary';b.textContent='列印點餐單';const id=bills[i].id;b.onclick=()=>preview(id,'kitchen');card.querySelector('.ticket-head').appendChild(b)})}
   for(const pay of document.querySelectorAll('[data-checkout]')){if(pay.parentElement.querySelector('[data-cp-bill]'))continue;const b=document.createElement('button');b.dataset.cpBill='1';b.className='btn secondary';b.textContent='列印消費明細';b.onclick=()=>preview(pay.dataset.checkout,'receipt');pay.parentElement.appendChild(b)}
  }
  style();let queued=false;new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;decorate()})}).observe(document.getElementById('app'),{childList:true,subtree:true});setInterval(poll,1500);setInterval(decorate,1500);decorate();
- navigator.usb?.addEventListener('disconnect',e=>{if(e.device===device){device=null;pref.auto=false;save();message('USB 已中斷，請重新連接；若已有部分紙本請確認後補印。')}});
+ navigator.usb?.addEventListener('disconnect',e=>{if(e.device===device){device=null;if(mode()==='usb'){pref.auto=false;save();message('USB 已中斷，請到列印設定重新連接；若已有部分紙本請確認後補印。')}}});
 })();
 
 </script><script data-staff-navigation-fullscreen="v1">
